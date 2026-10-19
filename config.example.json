@@ -1,0 +1,28 @@
+{
+  "_填写说明": [
+    "必填 weather_token：彩云天气 token（https://dashboard.caiyunapp.com/ 注册后创建）",
+    "必填 receiver：小鲁班接收人 uid，例如 a00123456",
+    "必填 auth：小鲁班认证 token（给小鲁班发送「获取发送token」）",
+    "建议填 latitude / longitude：固定街道级坐标；两者都留空时才自动定位",
+    "坐标默认按 GCJ-02（高德/腾讯地图）解释；若填的是 GPS/Google 的 WGS84 坐标，把 coordinate_system 改成 wgs84",
+    "彩云基础 token 无分钟级权限时，程序会自动降级到 realtime 实况，不影响起止提醒",
+    "填完后运行：py -3 rain_monitor.py --test-push 验证推送",
+    "查看还缺什么：py -3 rain_monitor.py --status"
+  ],
+  "weather_token": "",
+  "latitude": null,
+  "longitude": null,
+  "coordinate_system": "gcj02",
+  "receiver": "",
+  "auth": "",
+  "sender": "",
+  "interval_minutes": 5,
+  "rain_threshold": 0.08,
+  "dry_confirm_count": 3,
+  "min_push_interval_minutes": 30,
+  "request_timeout_seconds": 10,
+  "location_cache_minutes": 60,
+  "api_base": "https://api.caiyunapp.com",
+  "push_url": "http://xiaoluban.rnd.huawei.com:80/",
+  "log_level": "INFO"
+}

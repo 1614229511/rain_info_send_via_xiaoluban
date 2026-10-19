@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.idea/
+config.json
+logs/
+runtime_state.json
+runtime_state.corrupt-*.json
