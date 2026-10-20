@@ -25,6 +25,8 @@ import sys
 import urllib.error
 import urllib.request
 
+import net
+
 DEFAULT_URL = "http://xiaoluban.rnd.huawei.com:80/"
 USER_AGENT = "rain-monitor/1.0 (+local)"
 
@@ -36,10 +38,13 @@ def send_msg(
     sender: str | None = None,
     url: str = DEFAULT_URL,
     timeout: float = 10.0,
+    proxy: object = "",
+    proxy_bypass: object = None,
 ) -> dict:
     """发送一条小鲁班消息，返回结果字典（不抛网络异常）。
 
     content 支持换行与 HTML（颜色/加粗），与官方 demo 一致。
+    proxy 默认直连，避免计划任务继承 Windows 系统代理后被拒绝套接字。
     """
     if not content:
         return {"ok": False, "error": "content 不能为空"}
@@ -47,6 +52,11 @@ def send_msg(
         return {"ok": False, "error": "receiver 不能为空"}
     if not auth:
         return {"ok": False, "error": "auth 不能为空"}
+
+    try:
+        proxy = net.validate_proxy(proxy)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
 
     data: dict[str, str] = {"content": content, "receiver": receiver, "auth": auth}
     if sender:
@@ -65,7 +75,8 @@ def send_msg(
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        opener = net.build_opener_for(url, proxy, proxy_bypass)
+        with opener.open(request, timeout=timeout) as response:
             text = response.read().decode("utf-8", "replace")
             return {"ok": True, "status": response.status, "response": text.strip()}
     except urllib.error.HTTPError as exc:
@@ -97,6 +108,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sender", help="可选的发送人标识")
     parser.add_argument("--url", default=DEFAULT_URL, help="小鲁班推送地址")
     parser.add_argument("--timeout", type=float, default=10.0, help="HTTP 超时（秒）")
+    parser.add_argument(
+        "--proxy",
+        default=None,
+        help="none（直连，默认）/ system（系统代理）/ http://host:port",
+    )
+    parser.add_argument(
+        "--proxy-bypass",
+        default=None,
+        help="逗号分隔的直连域名，例如 localhost,127.0.0.1,*.huawei.com",
+    )
     parser.add_argument(
         "--json",
         action="store_true",
@@ -143,6 +164,13 @@ def main(argv: list[str] | None = None) -> int:
     sender = args.sender or payload.get("sender")
     url = args.url or payload.get("url") or DEFAULT_URL
     timeout = args.timeout or float(payload.get("timeout") or 10.0)
+    proxy = args.proxy if args.proxy is not None else payload.get("proxy", "")
+    bypass_raw = (
+        args.proxy_bypass
+        if args.proxy_bypass is not None
+        else payload.get("proxy_bypass")
+    )
+    proxy_bypass = net.parse_bypass(bypass_raw)
 
     if not content or not receiver or not auth:
         print(
@@ -163,6 +191,8 @@ def main(argv: list[str] | None = None) -> int:
         sender=sender,
         url=url,
         timeout=timeout,
+        proxy=proxy,
+        proxy_bypass=proxy_bypass,
     )
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result.get("ok") else 1

@@ -52,6 +52,7 @@
 | `rain_monitor.py` | 主程序：定位、拉取、状态机、推送、持久化 |
 | `state_machine.py` | 纯逻辑状态机与防抖（可单独测试） |
 | `geo.py` | WGS84 → GCJ-02 坐标转换（中国大陆） |
+| `net.py` | 代理策略：默认直连，可配置系统代理/手动代理与内网 bypass |
 | `push_client.py` | 小鲁班推送客户端，可独立命令行使用 |
 | `config.json` | 你的本地配置（含密钥，已被 `.gitignore` 忽略） |
 | `config.example.json` | 配置模板 |
@@ -141,6 +142,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File uninstall_task.ps1
 | `location_cache_minutes` | `60` | 系统/IP 定位缓存时长，`0` 表示不缓存 |
 | `api_base` | `https://api.caiyunapp.com` | 彩云根地址（调试可指向 mock） |
 | `push_url` | `http://xiaoluban.rnd.huawei.com:80/` | 小鲁班推送地址 |
+| `proxy` | `none` | 代理模式：`none` 直连（默认）/ `system` 系统代理 / `http://host:port` |
+| `proxy_bypass` | `localhost,127.0.0.1,*.huawei.com` | 命中这些域名时强制直连 |
 | `log_level` | `INFO` | 日志级别 |
 
 环境变量可覆盖敏感项（优先级高于 `config.json`）：
@@ -251,6 +254,36 @@ macOS / Linux 可用 cron 或 launchd 调度同一入口（注意 macOS 的命�
 */5 * * * * cd /path/to/rain_info_send_via_xiaoluban && /usr/bin/python3 rain_monitor.py --once
 ```
 
+## 系统代理与计划任务
+
+Windows 上 Python 的 `urllib` 默认会读取注册表里的系统代理。计划任务在代理客户端
+未授权的上下文运行时，可能出现“拒绝套接字创建 / socket access permission”错误。
+这不是小鲁班或彩云的问题，而是请求被转发到了代理。
+
+插件默认 `"proxy": "none"`，即**显式直连并忽略系统代理和 `HTTP_PROXY` 环境变量**，
+因此开启 Windows 系统代理不再影响定时任务，也不需要为了定时任务关闭代理。
+
+如果公司网络必须通过代理访问外网，可以改成：
+
+```json
+"proxy": "system",
+"proxy_bypass": ["localhost", "127.0.0.1", "*.huawei.com"]
+```
+
+或手动指定：
+
+```json
+"proxy": "http://127.0.0.1:7890",
+"proxy_bypass": ["localhost", "127.0.0.1", "*.huawei.com"]
+```
+
+规则：
+
+- `proxy_bypass` 命中的域名强制直连，小鲁班内网域名应放在这里；
+- `system` 读取注册表/环境变量里的 ProxyServer，不支持 PAC 脚本，PAC 环境请填手动地址；
+- 仅支持 HTTP/HTTPS 代理，不支持 SOCKS5/NTLM；
+- `push_client.py` 也支持 `--proxy` / `--proxy-bypass`。
+
 ## 测试
 
 ```powershell
@@ -260,8 +293,9 @@ py -3 -m unittest discover -s tests -v
 - `tests/test_state_machine.py`：阈值、防抖、冷却、状态文件兼容、回滚
 - `tests/test_providers.py`：`/weather`、minutely/realtime 解析、单位与强度分级
 - `tests/test_geo.py`：WGS84 → GCJ-02 转换与配置坐标系
+- `tests/test_net.py`：代理模式、直连 bypass、默认忽略系统代理
 - `tests/test_e2e_mock.py`：本地 mock 彩云 + mock 小鲁班，走完整子进程链路
-  （包括经纬度顺序、无 minutely 时用 realtime、推送失败回滚重试、`--status` 无需凭据）
+  （包括经纬度顺序、无 minutely 时用 realtime、设置 HTTP_PROXY 后仍直连、推送失败回滚重试、`--status` 无需凭据）
 
 ## 常见问题
 
@@ -269,6 +303,11 @@ py -3 -m unittest discover -s tests -v
 彩云账号只有基础套餐，`minutely` 属于企业增值服务。插件使用 `/weather` 综合接口，
 同一响应里没有 `minutely` 时会自动使用 `realtime`，起止提醒不受影响，无需额外配置。
 若需要未来两小时逐分钟描述，在彩云控制台开通分钟级降水权限即可，代码会自动优先使用。
+
+**计划任务报「拒绝套接字创建 / socket access permission」**
+通常是 Windows 系统代理导致的。插件默认 `proxy: none` 直连，已忽略系统代理；
+若仍失败，检查 `config.json` 是否被改成 `system`，或代理软件是否做了全局透明代理/防火墙拦截。
+可先用 `py -3 rain_monitor.py --once --verbose` 复现。
 
 **彩云返回 `HTTP 429` / `Rate limit exceeded`**
 触发了彩云限流。本轮会直接跳过、不写状态，下一个 5 分钟周期再试；
@@ -301,6 +340,10 @@ token 未填写或已失效，检查 `weather_token` / `CAIYUN_TOKEN`。
 ## 安全与隐私
 
 - `config.json` 含彩云 token 和小鲁班 token，已加入 `.gitignore`，不要提交。
+- `.gitignore` 现在忽略所有 `config*.json`，只保留无密钥的 `config.example.json`；
+  但仍要检查 `git status`，不要把本地配置副本提交上去。
+- **如果 token 曾经被提交到 git**：仅删除文件不会清除历史，请立即到彩云/小鲁班
+  控制台轮换 token，并用 `git filter-repo` 或 BFG 清理历史后强制推送；公开仓库尤其要尽快处理。
 - `runtime_state.json` 含最近坐标，也已忽略。
 - 日志不会记录 token；请求异常信息会把 token 替换为 `***`。
 - Level 3 会把你的公网 IP 发送给 `ip-api.com`；不希望这样请配置显式坐标或关闭系统定位。
